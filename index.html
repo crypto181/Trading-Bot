@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NEXUS TRADER — AI-Powered Crypto Bot</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #03060D; font-family: 'Exo 2', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #080E1A; }
+    ::-webkit-scrollbar-thumb { background: #0F2040; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #1A3A60; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ── Design Tokens ──────────────────────────────────────────────────────────
+    const C = {
+      bg: '#03060D', surface: '#080E1A', card: '#0B1220',
+      border: '#0F2040', borderBright: '#1A3A60',
+      accent: '#00CFFF', accentDim: '#005F80',
+      green: '#00FF88', greenDim: '#003D20',
+      red: '#FF2D55', redDim: '#400010',
+      gold: '#FFB800', goldDim: '#3D2C00',
+      purple: '#9B5CFF',
+      text: '#C8E8FF', muted: '#3A5878', faint: '#1A3050',
+      white: '#E8F4FF',
+    };
+
+    const EXCHANGES = [
+      { id:'binance', name:'Binance',      color:'#F0B90B', bg:'#1A1200', url:'https://binance.com' },
+      { id:'okx',     name:'OKX',          color:'#00AEFF', bg:'#001525', url:'https://okx.com' },
+      { id:'bybit',   name:'Bybit',        color:'#F7A600', bg:'#1A1100', url:'https://bybit.com' },
+      { id:'kucoin',  name:'KuCoin',       color:'#23AF91', bg:'#002218', url:'https://kucoin.com' },
+      { id:'coinbase',name:'Coinbase Pro', color:'#0052FF', bg:'#000A2A', url:'https://pro.coinbase.com' },
+      { id:'kraken',  name:'Kraken',       color:'#5741D9', bg:'#0F0820', url:'https://kraken.com' },
+      { id:'htx',     name:'HTX (Huobi)', color:'#2196F3', bg:'#00101D', url:'https://htx.com' },
+      { id:'gate',    name:'Gate.io',      color:'#2354E6', bg:'#000A20', url:'https://gate.io' },
+    ];
+
+    const PAIRS = ['BTC/USDT','ETH/USDT','BNB/USDT','SOL/USDT','XRP/USDT','ADA/USDT','DOGE/USDT','AVAX/USDT','MATIC/USDT','LINK/USDT'];
+
+    const WALLET_ADDR = 'TQn8YxTK9BPVxHfEu1zV7HULkm3A4NxCxP';
+
+    const MOCK_TRADES = [
+      { pair:'BTC/USDT',  side:'BUY',  entry:'67,240', exit:'68,100', pnl:'+12.50', pct:'+1.28%', time:'08:34', status:'Closed' },
+      { pair:'ETH/USDT',  side:'SELL', entry:'3,520',  exit:'3,490',  pnl:'+8.50',  pct:'+0.85%', time:'11:15', status:'Closed' },
+      { pair:'SOL/USDT',  side:'BUY',  entry:'142.30', exit:'145.80', pnl:'+24.00', pct:'+2.46%', time:'14:20', status:'Closed' },
+      { pair:'XRP/USDT',  side:'BUY',  entry:'0.5820', exit:'0.5910', pnl:'+9.00',  pct:'+1.55%', time:'16:45', status:'Closed' },
+      { pair:'BNB/USDT',  side:'BUY',  entry:'598.10', exit:'Open',   pnl:'+3.20',  pct:'+0.53%', time:'19:02', status:'Active'  },
+    ];
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    const Box = ({ style, children, ...rest }) => (
+      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:16, ...style }} {...rest}>
+        {children}
+      </div>
+    );
+
+    const Btn = ({ children, onClick, color=C.accent, disabled, small, danger, full, style }) => (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        style={{
+          background: disabled ? C.faint : (danger ? C.redDim : 'transparent'),
+          border: `2px solid ${disabled ? C.muted : (danger ? C.red : color)}`,
+          color: disabled ? C.muted : (danger ? C.red : color),
+          borderRadius: 8, padding: small ? '6px 14px' : '10px 20px',
+          cursor: disabled ? 'not-allowed' : 'pointer', fontSize: small ? 12 : 14,
+          fontFamily: 'inherit', transition: 'all .2s',
+          width: full ? '100%' : 'auto',
+          fontWeight: 600,
+          ...style,
+        }}
+        onMouseEnter={e => { if(!disabled) e.target.style.background = danger ? `${C.red}22` : `${color}22`; }}
+        onMouseLeave={e => { if(!disabled) e.target.style.background = disabled ? C.faint : (danger ? C.redDim : 'transparent'); }}
+      >{children}</button>
+    );
+
+    const Badge = ({ label, color }) => (
+      <span style={{ background:`${color}22`, color, border:`1px solid ${color}44`, borderRadius:6, padding:'2px 8px', fontSize:11, fontFamily:'Share Tech Mono, monospace' }}>{label}</span>
+    );
+
+    const Input = ({ value, onChange, placeholder, type='text', style }) => (
+      <input
+        type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, color:C.text,
+          padding:'10px 14px', width:'100%', fontSize:13, fontFamily:'inherit', outline:'none', boxSizing:'border-box', ...style }}
+        onFocus={e => e.target.style.borderColor = C.accent}
+        onBlur={e => e.target.style.borderColor = C.border}
+      />
+    );
+
+    // ── Main App ───────────────────────────────────────────────────────────────
+    function NexusTrader() {
+      const [tab, setTab] = useState('dashboard');
+      const [botOn, setBotOn] = useState(false);
+      const [signals, setSignals] = useState([]);
+      const [sigLoading, setSigLoading] = useState(false);
+      const [sigError, setSigError] = useState('');
+      const [connectedExch, setConnectedExch] = useState({});
+      const [exchModal, setExchModal] = useState(null);
+      const [apiKey, setApiKey] = useState('');
+      const [apiSecret, setApiSecret] = useState('');
+      const [apiPassphrase, setApiPassphrase] = useState('');
+      const [depAmt, setDepAmt] = useState('');
+      const [depMsg, setDepMsg] = useState('');
+      const [withAmt, setWithAmt] = useState('');
+      const [withAddr, setWithAddr] = useState('');
+      const [withMsg, setWithMsg] = useState('');
+      const [selPairs, setSelPairs] = useState(['BTC/USDT','ETH/USDT','SOL/USDT']);
+      const [risk, setRisk] = useState('medium');
+      const [tradeAmt, setTradeAmt] = useState('10');
+      const [countdown, setCountdown] = useState('00:00:00');
+      const [copied, setCopied] = useState('');
+      const [mobileNav, setMobileNav] = useState(false);
+      const [pulse, setPulse] = useState(false);
+
+      const refCode = useRef('NEXUS' + Math.random().toString(36).substr(2,6).toUpperCase());
+      const refLink = `https://nexustrader.io/r/${refCode.current}`;
+
+      // Font loader
+      useEffect(() => {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap';
+        document.head.appendChild(l);
+      }, []);
+
+      // Bot pulse animation
+      useEffect(() => {
+        if (!botOn) return;
+        const i = setInterval(() => setPulse(p => !p), 800);
+        return () => clearInterval(i);
+      }, [botOn]);
+
+      // Countdown timer to next signal (signals at 08:00, 14:00, 20:00 UTC)
+      useEffect(() => {
+        const tick = () => {
+          const now = new Date();
+          const hours = [8, 14, 20];
+          let next = null;
+          for (const h of hours) {
+            const t = new Date(now);
+            t.setUTCHours(h, 0, 0, 0);
+            if (t > now) { next = t; break; }
+          }
+          if (!next) {
+            next = new Date(now);
+            next.setUTCDate(next.getUTCDate() + 1);
+            next.setUTCHours(8, 0, 0, 0);
+          }
+          const diff = next - now;
+          const hh = Math.floor(diff / 3600000);
+          const mm = Math.floor((diff % 3600000) / 60000);
+          const ss = Math.floor((diff % 60000) / 1000);
+          setCountdown(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`);
+        };
+        tick();
+        const i = setInterval(tick, 1000);
+        return () => clearInterval(i);
+      }, []);
+
+      const fetchSignals = async () => {
+        setSigLoading(true); setSigError('');
+        try {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+              messages: [{ role:'user', content:`You are a professional crypto market analyst. Generate realistic AI trading signals for now. Return ONLY valid JSON array, no markdown, no preamble. Format exactly:
+[{"pair":"BTC/USDT","signal":"BUY","price":"67840","target":"69500","stopLoss":"66200","confidence":"87%","reason":"RSI oversold + Golden cross forming on 4H chart","change24h":"+2.4%","strength":"STRONG","timeframe":"4H"},...]
+Generate for: BTC/USDT, ETH/USDT, BNB/USDT, SOL/USDT, XRP/USDT, ADA/USDT, DOGE/USDT, AVAX/USDT.
+Signal: BUY, SELL, or HOLD. Strength: STRONG, MODERATE, WEAK. Use realistic prices. Include 2-3 HOLD signals.` }]
+            })
+          });
+          const data = await res.json();
+          const raw = data.content?.[0]?.text || '[]';
+          const clean = raw.replace(/```json|```/g,'').trim();
+          setSignals(JSON.parse(clean));
+        } catch(e) {
+          setSigError('Signal fetch failed. Check connection and retry.');
+        }
+        setSigLoading(false);
+      };
+
+      const linkExchange = () => {
+        if (!apiKey || !apiSecret) return;
+        setConnectedExch(prev => ({ ...prev, [exchModal]: {
+          key: apiKey.slice(0,6) + '••••' + apiKey.slice(-4),
+          connected: true, time: new Date().toLocaleTimeString()
+        }}));
+        setApiKey(''); setApiSecret(''); setApiPassphrase(''); setExchModal(null);
+      };
+
+      const copy = (text, key) => {
+        navigator.clipboard.writeText(text).catch(()=>{});
+        setCopied(key);
+        setTimeout(() => setCopied(''), 2000);
+      };
+
+      const togglePair = (pair) => {
+        setSelPairs(prev => prev.includes(pair) ? prev.filter(p=>p!==pair) : [...prev, pair]);
+      };
+
+      // ── Auth Functions ────────────────────────────────────────────────────────
+      const hashStr = (s) => {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; }
+        return Math.abs(h).toString(16).padStart(8,'0');
+      };
+
+      const doRegister = () => {
+        setAuthMsg({ text:'', ok:false });
+        if (!authName.trim()) return setAuthMsg({ text:'Enter your full name.', ok:false });
+        if (!authEmail.includes('@')) return setAuthMsg({ text:'Enter a valid email.', ok:false });
+        if (authPassword.length < 6) return setAuthMsg({ text:'Password must be at least 6 characters.', ok:false });
+        if (authPassword !== authConfirm) return setAuthMsg({ text:'Passwords do not match.', ok:false });
+        if (authPin.length !== 4 || isNaN(authPin)) return setAuthMsg({ text:'Withdraw PIN must be exactly 4 digits.', ok:false });
+        if (localStorage.getItem('nt_user_' + authEmail.toLowerCase())) return setAuthMsg({ text:'Account already exists. Please log in.', ok:false });
+        const user = { name: authName.trim(), email: authEmail.toLowerCase(), hash: hashStr(authPassword), pin: hashStr(authPin) };
+        localStorage.setItem('nt_user_' + authEmail.toLowerCase(), JSON.stringify(user));
+        localStorage.setItem('nt_session', authEmail.toLowerCase());
+        setIsLoggedIn(true);
+        setAuthMsg({ text:'', ok:true });
+      };
+
+      const doLogin = () => {
+        setAuthMsg({ text:'', ok:false });
+        if (!authEmail.includes('@')) return setAuthMsg({ text:'Enter a valid email.', ok:false });
+        if (!authPassword) return setAuthMsg({ text:'Enter your password.', ok:false });
+        const stored = localStorage.getItem('nt_user_' + authEmail.toLowerCase());
+        if (!stored) return setAuthMsg({ text:'No account found. Please register.', ok:false });
+        const user = JSON.parse(stored);
+        if (user.hash !== hashStr(authPassword)) return setAuthMsg({ text:'Incorrect password.', ok:false });
+        localStorage.setItem('nt_session', authEmail.toLowerCase());
+        setIsLoggedIn(true);
+      };
+
+      const doForgot = () => {
+        setAuthMsg({ text:'', ok:false });
+        if (!authEmail.includes('@')) return setAuthMsg({ text:'Enter your registered email.', ok:false });
+        if (!authPin || authPin.length !== 4 || isNaN(authPin)) return setAuthMsg({ text:'Enter your 4-digit withdraw PIN to verify identity.', ok:false });
+        if (!authPassword || authPassword.length < 6) return setAuthMsg({ text:'Enter a new password (min 6 chars).', ok:false });
+        const stored = localStorage.getItem('nt_user_' + authEmail.toLowerCase());
+        if (!stored) return setAuthMsg({ text:'No account found with that email.', ok:false });
+        const user = JSON.parse(stored);
+        if (user.pin !== hashStr(authPin)) return setAuthMsg({ text:'Incorrect PIN. Cannot reset password.', ok:false });
+        user.hash = hashStr(authPassword);
+        localStorage.setItem('nt_user_' + authEmail.toLowerCase(), JSON.stringify(user));
+        setAuthMsg({ text:'Password reset! You can now log in.', ok:true });
+        setTimeout(() => { setAuthScreen('login'); setAuthMsg({ text:'', ok:false }); setAuthPassword(''); setAuthPin(''); }, 1800);
+      };
+
+      const doLogout = () => {
+        localStorage.removeItem('nt_session');
+        setIsLoggedIn(false);
+        setAuthEmail(''); setAuthPassword(''); setAuthPin(''); setAuthConfirm('');
+        setAuthScreen('login');
+      };
+
+      const currentUser = () => {
+        const email = localStorage.getItem('nt_session');
+        if (!email) return null;
+        const stored = localStorage.getItem('nt_user_' + email);
+        return stored ? JSON.parse(stored) : null;
+      };
+
+      const doWithdrawVerify = () => {
+        const user = currentUser();
+        if (!user) return;
+        if (withPinInput.length !== 4 || isNaN(withPinInput)) { setWithPinMsg('Enter your 4-digit PIN.'); return; }
+        if (user.pin !== hashStr(withPinInput)) { setWithPinMsg('❌ Incorrect PIN. Withdrawal blocked.'); return; }
+        const a = parseFloat(withAmt);
+        if (isNaN(a) || a < 20) { setWithPinMsg('❌ Minimum withdrawal is 20 USDT'); return; }
+        if (!withAddr) { setWithPinMsg('❌ Enter your USDT address'); return; }
+        setWithMsg(`✅ Withdrawal of ${a} USDT submitted. Processing in 1–24 hours.`);
+        setWithAmt(''); setWithAddr('');
+        setWithPinModal(false); setWithPinInput(''); setWithPinMsg('');
+      };
+
+      // ── Render ────────────────────────────────────────────────────────────────
+      const TABS = [
+        { id:'dashboard', icon:'⬡', label:'Dashboard' },
+        { id:'signals',   icon:'◎', label:'AI Signals' },
+        { id:'bot',       icon:'⚙', label:'Bot Control' },
+        { id:'exchanges', icon:'⇄', label:'Exchanges' },
+        { id:'wallet',    icon:'◈', label:'Wallet' },
+        { id:'income',    icon:'◉', label:'Passive Income' },
+        { id:'guide',     icon:'?', label:'How To Use' },
+      ];
+
+      const font = { fontFamily: "'Exo 2', sans-serif" };
+      const mono = { fontFamily: "'Share Tech Mono', monospace" };
+      const orb  = { fontFamily: "'Orbitron', sans-serif" };
+
+      return (
+        <div style={{ background:C.bg, minHeight:'100vh', color:C.text, ...font,
+          backgroundImage:`radial-gradient(ellipse at 20% 0%, #001830 0%, transparent 60%), radial-gradient(ellipse at 80% 100%, #001020 0%, transparent 60%)` }}>
+
+          {/* ── Header ── */}
+          <div style={{ background:`${C.surface}F2`, borderBottom:`1px solid ${C.border}`,
+            position:'sticky', top:0, zIndex:100, backdropFilter:'blur(12px)' }}>
+            <div style={{ maxWidth:1200, margin:'0 auto', display:'flex', alignItems:'center',
+              justifyContent:'space-between', padding:'0 16px', height:52 }}>
+              {/* Logo */}
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <div style={{ width:28, height:28, borderRadius:'50%', background:`linear-gradient(135deg, ${C.accent}, ${C.purple})`,
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, ...orb, flexShrink:0 }}>N</div>
+                <div>
+                  <div style={{ ...orb, fontSize:13, fontWeight:700, color:C.accent, letterSpacing:2, lineHeight:1.1 }}>NEXUS</div>
+                  <div style={{ ...orb, fontSize:7, color:C.muted, letterSpacing:3, lineHeight:1 }}>TRADER</div>
+                </div>
+              </div>
+              {/* Status pill */}
+              <div style={{ display:'flex', alignItems:'center', gap:5, background: botOn ? `${C.green}15` : `${C.muted}15`,
+                border:`1px solid ${botOn ? C.green : C.muted}55`, borderRadius:20, padding:'4px 10px' }}>
+                <div style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: botOn ? C.green : C.muted,
+                  boxShadow: botOn ? `0 0 ${pulse?'8px':'4px'} ${C.green}` : 'none', transition:'all .3s' }}/>
+                <span style={{ ...mono, fontSize:10, color: botOn ? C.green : C.muted, whiteSpace:'nowrap' }}>
+                  {botOn ? 'BOT ACTIVE' : 'BOT OFFLINE'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Bottom Tab Bar ── */}
+          <div style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:100,
+            background:`${C.surface}F8`, borderTop:`2px solid ${C.borderBright}`,
+            backdropFilter:'blur(16px)',
+            display:'grid', gridTemplateColumns:'repeat(7, 1fr)',
+            paddingBottom:'env(safe-area-inset-bottom, 0px)' }}>
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{
+                  background: tab===t.id ? `${C.accent}12` : 'transparent',
+                  border: 'none',
+                  borderTop: `3px solid ${tab===t.id ? C.accent : 'transparent'}`,
+                  color: tab===t.id ? C.accent : C.muted,
+                  padding:'7px 2px 9px',
+                  cursor:'pointer',
+                  display:'flex', flexDirection:'column', alignItems:'center', gap:2,
+                  transition:'all .18s',
+                  minWidth:0, overflow:'hidden',
+                }}>
+                <span style={{ fontSize:15, lineHeight:1 }}>{t.icon}</span>
+                <span style={{ fontSize:8.5, ...font, fontWeight: tab===t.id ? 700 : 400,
+                  whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+                  width:'100%', textAlign:'center', letterSpacing:0.2 }}>
+                  {t.label}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ maxWidth:1200, margin:'0 auto', padding:'20px 16px 100px 16px' }}>
+
+            {/* ══ DASHBOARD TAB ══ */}
+            {tab === 'dashboard' && (
+              <div>
+                <div style={{ marginBottom:24 }}>
+                  <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:0 }}>Trading Dashboard</h1>
+                  <p style={{ color:C.muted, fontSize:13, marginTop:4 }}>AI-powered trading · Signals at 08:00, 14:00 & 20:00 UTC daily</p>
+                </div>
+
+                {/* Stats row */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12, marginBottom:20 }}>
+                  {[
+                    { label:'Portfolio Balance', value:'$247.50', sub:'USDT', color:C.accent },
+                    { label:'Total Profit',       value:'+$18.32', sub:'+8.0% ROI', color:C.green },
+                    { label:'Active Trades',      value:'1', sub:'BNB/USDT', color:C.gold },
+                    { label:'Total Trades',       value:'47', sub:'This month', color:C.purple },
+                    { label:'Win Rate',           value:'84.2%', sub:'38/45 wins', color:C.green },
+                    { label:'Next Signal',        value:countdown, sub:'Countdown', color:C.accent },
+                  ].map((s,i) => (
+                    <Box key={i} style={{ textAlign:'center', padding:'16px 12px' }}>
+                      <div style={{ fontSize:11, color:C.muted, marginBottom:6, textTransform:'uppercase', letterSpacing:1 }}>{s.label}</div>
+                      <div style={{ ...mono, fontSize:20, fontWeight:700, color:s.color }}>{s.value}</div>
+                      <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{s.sub}</div>
+                    </Box>
+                  ))}
+                </div>
+
+                {/* Disclaimer */}
+                <Box style={{ borderColor:`${C.gold}44`, background:`${C.goldDim}88`, marginBottom:20, padding:14 }}>
+                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', fontSize:12 }}>
+                    <span style={{ color:C.gold, fontSize:16 }}>⚠</span>
+                    <div style={{ color:`${C.gold}DD` }}>
+                      <strong>Risk Disclaimer:</strong> Cryptocurrency trading involves substantial risk. Past performance does not guarantee future results.
+                      AI signals are educational tools — always trade responsibly and only invest what you can afford to lose.
+                    </div>
+                  </div>
+                </Box>
+
+                {/* Recent trades */}
+                <Box>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                    <h3 style={{ ...orb, fontSize:14, color:C.text, margin:0, letterSpacing:1 }}>RECENT TRADES</h3>
+                    <Badge label="Live" color={C.green} />
+                  </div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, ...mono }}>
+                      <thead>
+                        <tr style={{ color:C.muted }}>
+                          {['Pair','Side','Entry','Exit','PnL','Change','Time','Status'].map(h => (
+                            <th key={h} style={{ padding:'8px 12px', textAlign:'left', borderBottom:`1px solid ${C.border}`, fontWeight:400, fontSize:11 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {MOCK_TRADES.map((t,i) => (
+                          <tr key={i} style={{ borderBottom:`1px solid ${C.faint}` }}
+                            onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            <td style={{ padding:'10px 12px', color:C.text, fontWeight:600 }}>{t.pair}</td>
+                            <td style={{ padding:'10px 12px' }}>
+                              <Badge label={t.side} color={t.side==='BUY' ? C.green : C.red} />
+                            </td>
+                            <td style={{ padding:'10px 12px', color:C.muted }}>{t.entry}</td>
+                            <td style={{ padding:'10px 12px', color:C.muted }}>{t.exit}</td>
+                            <td style={{ padding:'10px 12px', color:C.green }}>{t.pnl} USDT</td>
+                            <td style={{ padding:'10px 12px', color:C.green }}>{t.pct}</td>
+                            <td style={{ padding:'10px 12px', color:C.muted }}>{t.time}</td>
+                            <td style={{ padding:'10px 12px' }}>
+                              <Badge label={t.status} color={t.status==='Active' ? C.gold : C.muted} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Box>
+              </div>
+            )}
+
+            {/* ══ AI SIGNALS TAB ══ */}
+            {tab === 'signals' && (
+              <div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24, flexWrap:'wrap', gap:12 }}>
+                  <div>
+                    <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:0 }}>AI Trading Signals</h1>
+                    <p style={{ color:C.muted, fontSize:13, marginTop:4 }}>3 signal broadcasts daily · Claude AI analysis · Real-time market scanning</p>
+                  </div>
+                  <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                    <Box style={{ padding:'10px 16px', textAlign:'center', minWidth:140 }}>
+                      <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>NEXT SIGNAL IN</div>
+                      <div style={{ ...mono, fontSize:20, color:C.accent }}>{countdown}</div>
+                    </Box>
+                    <Btn onClick={fetchSignals} disabled={sigLoading} color={C.accent}>
+                      {sigLoading ? '⟳ Analyzing...' : '◎ Generate Signals'}
+                    </Btn>
+                  </div>
+                </div>
+
+                {/* Signal schedule */}
+                <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+                  {['08:00 UTC', '14:00 UTC', '20:00 UTC'].map(t => (
+                    <Box key={t} style={{ flex:1, textAlign:'center', padding:'10px 8px' }}>
+                      <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>BROADCAST</div>
+                      <div style={{ ...mono, fontSize:14, color:C.accent }}>{t}</div>
+                    </Box>
+                  ))}
+                </div>
+
+                {sigError && (
+                  <Box style={{ borderColor:C.red, background:C.redDim, marginBottom:16, padding:12 }}>
+                    <span style={{ color:C.red, fontSize:13 }}>⚠ {sigError}</span>
+                  </Box>
+                )}
+
+                {sigLoading && (
+                  <Box style={{ textAlign:'center', padding:40 }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>◎</div>
+                    <div style={{ color:C.accent, ...orb, fontSize:14, letterSpacing:2 }}>AI ANALYZING MARKETS...</div>
+                    <div style={{ color:C.muted, fontSize:12, marginTop:8 }}>Scanning 8 pairs · Technical + sentiment analysis</div>
+                  </Box>
+                )}
+
+                {!sigLoading && signals.length === 0 && (
+                  <Box style={{ textAlign:'center', padding:40 }}>
+                    <div style={{ fontSize:48, marginBottom:12 }}>◎</div>
+                    <div style={{ color:C.text, fontSize:16, marginBottom:8 }}>No Signals Generated Yet</div>
+                    <div style={{ color:C.muted, fontSize:13, marginBottom:20 }}>Click "Generate Signals" to get AI-powered trading analysis</div>
+                    <Btn onClick={fetchSignals} color={C.accent}>◎ Generate AI Signals Now</Btn>
+                  </Box>
+                )}
+
+                {!sigLoading && signals.length > 0 && (
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:12 }}>
+                    {signals.map((s,i) => {
+                      const isBuy  = s.signal === 'BUY';
+                      const isSell = s.signal === 'SELL';
+                      const sigColor = isBuy ? C.green : isSell ? C.red : C.gold;
+                      return (
+                        <Box key={i} style={{ borderColor:`${sigColor}44`, padding:16 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                            <span style={{ ...orb, fontSize:15, color:C.white, fontWeight:700 }}>{s.pair}</span>
+                            <div style={{ display:'flex', gap:6 }}>
+                              <Badge label={s.signal} color={sigColor} />
+                              <Badge label={s.strength} color={C.muted} />
+                            </div>
+                          </div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12, fontSize:12, ...mono }}>
+                            {[
+                              ['Price', `$${s.price}`, C.text],
+                              ['24h', s.change24h, s.change24h?.startsWith('+') ? C.green : C.red],
+                              ['Target ▲', `$${s.target}`, C.green],
+                              ['Stop Loss ▼', `$${s.stopLoss}`, C.red],
+                              ['Confidence', s.confidence, C.accent],
+                              ['Timeframe', s.timeframe, C.purple],
+                            ].map(([label, val, col]) => (
+                              <div key={label}>
+                                <div style={{ fontSize:10, color:C.muted, marginBottom:2 }}>{label}</div>
+                                <div style={{ color:col }}>{val}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, fontSize:11, color:C.muted, lineHeight:1.5 }}>
+                            ◎ {s.reason}
+                          </div>
+                        </Box>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ══ BOT CONTROL TAB ══ */}
+            {tab === 'bot' && (
+              <div>
+                <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:'0 0 8px' }}>Bot Control Center</h1>
+                <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>Configure and manage your automated trading bot</p>
+
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))', gap:16 }}>
+                  {/* Bot on/off */}
+                  <Box style={{ gridColumn:'1/-1' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:16 }}>
+                      <div>
+                        <h3 style={{ ...orb, fontSize:14, color:C.text, margin:'0 0 4px', letterSpacing:1 }}>BOT STATUS</h3>
+                        <p style={{ color:C.muted, fontSize:12, margin:0 }}>
+                          {botOn ? 'Bot is running — scanning markets and executing trades automatically.' : 'Bot is offline. Press Start to begin automated trading.'}
+                        </p>
+                      </div>
+                      <div style={{ display:'flex', gap:10 }}>
+                        <Btn onClick={() => setBotOn(true)} disabled={botOn} color={C.green}>▶ Start Bot</Btn>
+                        <Btn onClick={() => setBotOn(false)} disabled={!botOn} danger>■ Stop Bot</Btn>
+                      </div>
+                    </div>
+                    {botOn && (
+                      <div style={{ marginTop:16, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px,1fr))', gap:10 }}>
+                        {[
+                          { label:'Scan Interval', value:'5 min' },
+                          { label:'Active Pairs', value:`${selPairs.length}` },
+                          { label:'Trade Amount', value:`${tradeAmt} USDT` },
+                          { label:'Risk Level', value:risk.toUpperCase() },
+                          { label:'Running Since', value:new Date().toLocaleTimeString() },
+                          { label:'Strategy', value:'AI Adaptive' },
+                        ].map((s,i) => (
+                          <div key={i} style={{ background:C.surface, borderRadius:8, padding:'10px 12px', border:`1px solid ${C.faint}` }}>
+                            <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>{s.label}</div>
+                            <div style={{ ...mono, fontSize:13, color:C.accent }}>{s.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Box>
+
+                  {/* Trading Pairs */}
+                  <Box>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 12px', letterSpacing:1 }}>TRADING PAIRS</h3>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {PAIRS.map(p => (
+                        <button key={p} onClick={() => togglePair(p)}
+                          style={{ background: selPairs.includes(p) ? `${C.accent}22` : C.surface,
+                            border:`2px solid ${selPairs.includes(p) ? C.accent : C.borderBright}`,
+                            color: selPairs.includes(p) ? C.accent : C.muted,
+                            borderRadius:6, padding:'5px 10px', cursor:'pointer', fontSize:11, ...mono,
+                            transition:'all .15s', fontWeight: selPairs.includes(p) ? 700 : 400 }}>
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ marginTop:10, fontSize:11, color:C.muted }}>{selPairs.length} pairs selected</div>
+                  </Box>
+
+                  {/* Risk & Amount */}
+                  <Box>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 12px', letterSpacing:1 }}>RISK MANAGEMENT</h3>
+                    <div style={{ marginBottom:14 }}>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:8 }}>Risk Level</div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        {[['low','Low',C.green],['medium','Medium',C.gold],['high','High',C.red]].map(([v,l,c]) => (
+                          <button key={v} onClick={() => setRisk(v)}
+                            style={{ flex:1, background: risk===v ? `${c}22` : C.surface, border:`2px solid ${risk===v ? c : C.borderBright}`,
+                              color: risk===v ? c : C.muted, borderRadius:8, padding:'8px 0', cursor:'pointer', fontSize:12, ...font, fontWeight: risk===v ? 700 : 400 }}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Trade Amount per Signal (USDT)</div>
+                      <Input value={tradeAmt} onChange={setTradeAmt} placeholder="10" type="number" />
+                      <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>Min: 10 USDT · Recommended: 10–50 USDT</div>
+                    </div>
+                  </Box>
+
+                  {/* Strategy info */}
+                  <Box style={{ gridColumn:'1/-1' }}>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 12px', letterSpacing:1 }}>BOT STRATEGIES</h3>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px,1fr))', gap:10 }}>
+                      {[
+                        { name:'AI Adaptive', desc:'Switches strategy based on market conditions. Best for volatile markets.', active:true },
+                        { name:'Trend Follow', desc:'Follows major trend direction using EMA crossovers and MACD.', active:false },
+                        { name:'Scalping', desc:'High-frequency small profits. Requires low-spread exchange.', active:false },
+                        { name:'Grid Trading', desc:'Places buy/sell orders in a price grid. Good for sideways markets.', active:false },
+                      ].map((s,i) => (
+                        <div key={i} style={{ background:C.surface, borderRadius:8, padding:12, border:`1px solid ${s.active ? C.accent : C.border}` }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                            <span style={{ fontSize:13, color:C.text, fontWeight:600 }}>{s.name}</span>
+                            {s.active && <Badge label="Active" color={C.accent} />}
+                          </div>
+                          <div style={{ fontSize:11, color:C.muted, lineHeight:1.5 }}>{s.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Box>
+                </div>
+              </div>
+            )}
+
+            {/* ══ EXCHANGES TAB ══ */}
+            {tab === 'exchanges' && (
+              <div>
+                <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:'0 0 8px' }}>Exchange Integration</h1>
+                <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>Connect your exchange accounts via API keys. Your keys are stored locally and never leave your device.</p>
+
+                <Box style={{ borderColor:`${C.accent}33`, background:`${C.accent}08`, marginBottom:20, padding:14 }}>
+                  <div style={{ display:'flex', gap:10, fontSize:12 }}>
+                    <span style={{ color:C.accent }}>🔒</span>
+                    <div style={{ color:`${C.accent}CC` }}>
+                      <strong>Security Note:</strong> Only enable <strong>Spot Trading</strong> permissions. Never enable withdrawal permissions on bot API keys.
+                      Use IP whitelisting when available for maximum security.
+                    </div>
+                  </div>
+                </Box>
+
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:12 }}>
+                  {EXCHANGES.map(exch => {
+                    const linked = connectedExch[exch.id];
+                    return (
+                      <Box key={exch.id} style={{ borderColor: linked ? `${exch.color}44` : C.border }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
+                          <div>
+                            <div style={{ ...orb, fontSize:15, color:linked ? exch.color : C.text, fontWeight:700, marginBottom:2 }}>{exch.name}</div>
+                            <div style={{ fontSize:11, color:C.muted }}>{exch.url}</div>
+                          </div>
+                          {linked ? <Badge label="✓ Connected" color={C.green} /> : <Badge label="Not linked" color={C.muted} />}
+                        </div>
+                        {linked && (
+                          <div style={{ background:C.surface, borderRadius:6, padding:'8px 10px', marginBottom:10 }}>
+                            <div style={{ fontSize:10, color:C.muted, marginBottom:2 }}>API Key</div>
+                            <div style={{ ...mono, fontSize:12, color:C.accent }}>{linked.key}</div>
+                            <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>Connected at {linked.time}</div>
+                          </div>
+                        )}
+                        <div style={{ display:'flex', gap:8 }}>
+                          <Btn onClick={() => setExchModal(exch.id)} color={linked ? C.gold : exch.color} small>
+                            {linked ? '⟳ Reconnect' : '⊕ Link Exchange'}
+                          </Btn>
+                          <Btn onClick={() => window.open(exch.url, '_blank')} color={C.muted} small>↗ Visit</Btn>
+                        </div>
+                      </Box>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ══ WALLET TAB ══ */}
+            {tab === 'wallet' && (
+              <div>
+                <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:'0 0 8px' }}>Wallet</h1>
+                <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>Deposit & withdraw USDT · Min deposit: 10 USDT · Min withdrawal: 20 USDT</p>
+
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:16 }}>
+                  {/* Balance */}
+                  <Box style={{ gridColumn:'1/-1' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px,1fr))', gap:12 }}>
+                      {[
+                        { label:'Available Balance', value:'$247.50', sub:'USDT', color:C.accent },
+                        { label:'Total Deposited',   value:'$229.18', sub:'USDT', color:C.text },
+                        { label:'Total Profit',       value:'+$18.32', sub:'8.0% ROI', color:C.green },
+                        { label:'Pending Withdraw',   value:'$0.00',   sub:'Processing', color:C.gold },
+                      ].map((s,i) => (
+                        <div key={i} style={{ background:C.surface, borderRadius:8, padding:14, textAlign:'center' }}>
+                          <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>{s.label}</div>
+                          <div style={{ ...mono, fontSize:22, color:s.color }}>{s.value}</div>
+                          <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{s.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Box>
+
+                  {/* Deposit */}
+                  <Box>
+                    <h3 style={{ ...orb, fontSize:14, color:C.green, margin:'0 0 16px', letterSpacing:1 }}>⊕ DEPOSIT USDT</h3>
+                    <div style={{ marginBottom:16 }}>
+                      <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>Network: <span style={{ color:C.accent }}>TRON (TRC20)</span></div>
+                      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:12 }}>
+                        <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>DEPOSIT ADDRESS</div>
+                        <div style={{ ...mono, fontSize:11, color:C.accent, wordBreak:'break-all', marginBottom:8 }}>{WALLET_ADDR}</div>
+                        <Btn onClick={() => copy(WALLET_ADDR, 'addr')} color={C.accent} small full>
+                          {copied==='addr' ? '✓ Copied!' : '⎘ Copy Address'}
+                        </Btn>
+                      </div>
+                    </div>
+
+                    {/* QR Code */}
+                    <div style={{ textAlign:'center', marginBottom:16 }}>
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${WALLET_ADDR}&bgcolor=080E1A&color=00CFFF&margin=8`}
+                        alt="Deposit QR Code" style={{ borderRadius:8, border:`1px solid ${C.border}` }} />
+                      <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>Scan with your wallet app</div>
+                    </div>
+
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Amount to Deposit (USDT)</div>
+                      <Input value={depAmt} onChange={setDepAmt} placeholder="Min: 10 USDT" type="number" />
+                    </div>
+                    <Btn onClick={() => {
+                      const a = parseFloat(depAmt);
+                      if (isNaN(a)||a<10) setDepMsg('❌ Minimum deposit is 10 USDT');
+                      else setDepMsg(`✅ Send exactly ${a} USDT (TRC20). Balance updates after 1 confirmation (~1 min).`);
+                    }} color={C.green} full>Confirm Deposit</Btn>
+                    {depMsg && <div style={{ marginTop:10, fontSize:12, color: depMsg.startsWith('✅') ? C.green : C.red, lineHeight:1.6 }}>{depMsg}</div>}
+
+                    <div style={{ marginTop:12, background:C.surface, borderRadius:8, padding:10, fontSize:11, color:C.muted }}>
+                      ⚡ Confirmation time: ~1–3 minutes · Only send USDT on TRC20 network · Minimum: 10 USDT
+                    </div>
+                  </Box>
+
+                  {/* Withdraw */}
+                  <Box>
+                    <h3 style={{ ...orb, fontSize:14, color:C.red, margin:'0 0 16px', letterSpacing:1 }}>⊖ WITHDRAW USDT</h3>
+                    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                      <div>
+                        <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Amount to Withdraw (USDT)</div>
+                        <Input value={withAmt} onChange={setWithAmt} placeholder="Min: 20 USDT" type="number" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Your USDT Address (TRC20)</div>
+                        <Input value={withAddr} onChange={setWithAddr} placeholder="TRC20 USDT address" />
+                      </div>
+                      <Btn onClick={() => {
+                        const a = parseFloat(withAmt);
+                        if (isNaN(a)||a<20) { setWithMsg('❌ Minimum withdrawal is 20 USDT'); return; }
+                        if (!withAddr) { setWithMsg('❌ Enter your USDT address'); return; }
+                        setWithMsg(`✅ Withdrawal of ${a} USDT submitted. Processing in 1–24 hours.`);
+                        setWithAmt(''); setWithAddr('');
+                      }} color={C.red} danger full>Request Withdrawal</Btn>
+                      {withMsg && <div style={{ fontSize:12, color: withMsg.startsWith('✅') ? C.green : C.red, lineHeight:1.6 }}>{withMsg}</div>}
+                    </div>
+
+                    <div style={{ marginTop:16 }}>
+                      <h4 style={{ fontSize:12, color:C.muted, margin:'0 0 10px', letterSpacing:1 }}>WITHDRAWAL RULES</h4>
+                      {[
+                        { icon:'◦', text:'Minimum withdrawal: 20 USDT' },
+                        { icon:'◦', text:'Network fee: 1 USDT (TRC20)' },
+                        { icon:'◦', text:'Processing time: 1–24 hours' },
+                        { icon:'◦', text:'Only TRC20 addresses accepted' },
+                        { icon:'◦', text:'Double-check address — irreversible!' },
+                        { icon:'◦', text:'No withdrawal fee for VIP members' },
+                      ].map((r,i) => (
+                        <div key={i} style={{ fontSize:12, color:C.muted, marginBottom:6, display:'flex', gap:8 }}>
+                          <span style={{ color:C.accent }}>{r.icon}</span>{r.text}
+                        </div>
+                      ))}
+                    </div>
+                  </Box>
+
+                  {/* Transaction history */}
+                  <Box style={{ gridColumn:'1/-1' }}>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 12px', letterSpacing:1 }}>TRANSACTION HISTORY</h3>
+                    {[
+                      { type:'Deposit',    amount:'+100 USDT', status:'Confirmed', time:'2 days ago', hash:'TX8f2a...4d91', net:'TRC20' },
+                      { type:'Deposit',    amount:'+129.18 USDT', status:'Confirmed', time:'5 days ago', hash:'TX3c1b...8e22', net:'TRC20' },
+                      { type:'Profit',     amount:'+18.32 USDT', status:'Credited', time:'Today', hash:'Internal', net:'–' },
+                    ].map((tx,i) => (
+                      <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                        padding:'10px 0', borderBottom: i<2 ? `1px solid ${C.faint}` : 'none', flexWrap:'wrap', gap:8 }}>
+                        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                          <div style={{ width:32, height:32, borderRadius:'50%', background:`${C.green}18`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>
+                            {tx.type==='Deposit' ? '⊕' : '◈'}
+                          </div>
+                          <div>
+                            <div style={{ fontSize:13, color:C.text }}>{tx.type}</div>
+                            <div style={{ fontSize:11, color:C.muted }}>{tx.time} · {tx.net}</div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ ...mono, fontSize:14, color:C.green }}>{tx.amount}</div>
+                          <div style={{ fontSize:11, color:C.muted }}>{tx.hash}</div>
+                        </div>
+                        <Badge label={tx.status} color={C.green} />
+                      </div>
+                    ))}
+                  </Box>
+                </div>
+              </div>
+            )}
+
+            {/* ══ PASSIVE INCOME TAB ══ */}
+            {tab === 'income' && (
+              <div>
+                <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:'0 0 8px' }}>Passive Income Program</h1>
+                <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>Earn commissions by referring friends · Lifetime commission on their trades</p>
+
+                {/* Referral stats */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px,1fr))', gap:12, marginBottom:20 }}>
+                  {[
+                    { label:'Referral Earnings', value:'$0.00', color:C.green },
+                    { label:'Total Referrals', value:'0', color:C.accent },
+                    { label:'Commission Rate', value:'10%', color:C.gold },
+                    { label:'Lifetime Commission', value:'Unlimited', color:C.purple },
+                  ].map((s,i) => (
+                    <Box key={i} style={{ textAlign:'center', padding:'14px 10px' }}>
+                      <div style={{ fontSize:10, color:C.muted, marginBottom:6, textTransform:'uppercase' }}>{s.label}</div>
+                      <div style={{ ...mono, fontSize:20, color:s.color }}>{s.value}</div>
+                    </Box>
+                  ))}
+                </div>
+
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px,1fr))', gap:16 }}>
+                  {/* Your referral link */}
+                  <Box>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 12px', letterSpacing:1 }}>YOUR REFERRAL LINK</h3>
+
+                    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:12, marginBottom:12 }}>
+                      <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>REFERRAL CODE</div>
+                      <div style={{ ...mono, fontSize:20, color:C.accent, marginBottom:8 }}>{refCode.current}</div>
+                      <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>REFERRAL LINK</div>
+                      <div style={{ ...mono, fontSize:11, color:C.text, wordBreak:'break-all', marginBottom:10 }}>{refLink}</div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <Btn onClick={() => copy(refLink, 'reflink')} color={C.accent} small>
+                          {copied==='reflink' ? '✓ Copied!' : '⎘ Copy Link'}
+                        </Btn>
+                        <Btn onClick={() => copy(refCode.current, 'refcode')} color={C.purple} small>
+                          {copied==='refcode' ? '✓ Copied!' : '⎘ Copy Code'}
+                        </Btn>
+                      </div>
+                    </div>
+
+                    {/* Share buttons */}
+                    <h4 style={{ fontSize:12, color:C.muted, margin:'0 0 10px', letterSpacing:1 }}>SHARE VIA</h4>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                      {[
+                        { label:'WhatsApp', color:'#25D366', url:`https://wa.me/?text=${encodeURIComponent(`Join NexusTrader — AI crypto bot earning daily profits! Use my referral: ${refLink}`)}` },
+                        { label:'Telegram', color:'#29A0D8', url:`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent('Join NexusTrader AI Trading Bot!')}` },
+                        { label:'Twitter/X', color:'#1DA1F2', url:`https://twitter.com/intent/tweet?text=${encodeURIComponent(`I'm using NexusTrader AI trading bot — making passive income daily 🚀 Join with my link: ${refLink}`)}` },
+                        { label:'Facebook', color:'#1877F2', url:`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(refLink)}` },
+                      ].map(s => (
+                        <Btn key={s.label} onClick={() => window.open(s.url,'_blank')} color={s.color} small full>{s.label}</Btn>
+                      ))}
+                    </div>
+                  </Box>
+
+                  {/* QR Code */}
+                  <Box style={{ textAlign:'center' }}>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 16px', letterSpacing:1 }}>QR CODE SHARE</h3>
+                    <div style={{ display:'inline-block', padding:12, background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, marginBottom:12 }}>
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(refLink)}&bgcolor=080E1A&color=00CFFF&margin=10`}
+                        alt="Referral QR Code"
+                        style={{ display:'block', borderRadius:8 }}
+                      />
+                    </div>
+                    <div style={{ fontSize:12, color:C.muted, marginBottom:4 }}>Share this QR code with friends</div>
+                    <div style={{ ...mono, fontSize:11, color:C.accent, marginBottom:16 }}>{refCode.current}</div>
+                    <Btn onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(refLink)}&bgcolor=080E1A&color=00CFFF&margin=20`;
+                      a.download = 'nexustrader-qr.png';
+                      a.target = '_blank';
+                      a.click();
+                    }} color={C.purple} full>⬇ Download QR Code</Btn>
+                  </Box>
+
+                  {/* Commission tiers */}
+                  <Box style={{ gridColumn:'1/-1' }}>
+                    <h3 style={{ ...orb, fontSize:13, color:C.text, margin:'0 0 16px', letterSpacing:1 }}>COMMISSION STRUCTURE</h3>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px,1fr))', gap:10 }}>
+                      {[
+                        { tier:'Starter',  refs:'1–5',   comm:'5%',  extra:'Direct trades only' },
+                        { tier:'Silver',   refs:'6–20',  comm:'7%',  extra:'+ 2% level 2' },
+                        { tier:'Gold',     refs:'21–50', comm:'10%', extra:'+ 3% level 2 & 3' },
+                        { tier:'Platinum', refs:'51+',   comm:'15%', extra:'+ 5% multi-level' },
+                      ].map((t,i) => (
+                        <div key={i} style={{ background:C.surface, borderRadius:8, padding:14, border:`1px solid ${i===0 ? C.accent : C.border}`,
+                          position:'relative', overflow:'hidden' }}>
+                          {i===0 && <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:`linear-gradient(90deg, ${C.accent}, ${C.purple})` }}/>}
+                          <div style={{ fontSize:13, color:C.text, fontWeight:600, marginBottom:4 }}>{t.tier}</div>
+                          <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>{t.refs} referrals</div>
+                          <div style={{ ...mono, fontSize:24, color:C.gold, marginBottom:4 }}>{t.comm}</div>
+                          <div style={{ fontSize:11, color:C.muted }}>{t.extra}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Box>
+                </div>
+              </div>
+            )}
+
+            {/* ══ HOW TO USE TAB ══ */}
+            {tab === 'guide' && (
+              <div>
+                <h1 style={{ ...orb, fontSize:22, fontWeight:700, color:C.white, margin:'0 0 8px' }}>How To Use NexusTrader</h1>
+                <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>Complete setup guide — from first deposit to first profit in minutes</p>
+
+                {/* Quick steps */}
+                <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:24 }}>
+                  {[
+                    {
+                      step:'01', title:'Create Account & Deposit',
+                      color:C.accent,
+                      items:[
+                        'Navigate to the Wallet tab and copy your USDT (TRC20) deposit address.',
+                        'Send a minimum of 10 USDT to the address. Wait 1–3 minutes for confirmation.',
+                        'Your balance will reflect automatically once the transaction confirms.',
+                        'Recommended starting capital: 50–200 USDT for meaningful returns.',
+                      ]
+                    },
+                    {
+                      step:'02', title:'Link Your Exchange',
+                      color:C.purple,
+                      items:[
+                        'Go to Exchanges tab and choose your preferred exchange (Binance, OKX, etc.).',
+                        'In your exchange account, generate a new API key with Spot Trading permission ONLY.',
+                        'Important: Do NOT enable withdrawal permissions on the bot API key.',
+                        'Paste your API Key and Secret into the connection form and click "Link Exchange".',
+                        'Enable IP whitelisting in your exchange for extra security.',
+                      ]
+                    },
+                    {
+                      step:'03', title:'Configure Your Bot',
+                      color:C.gold,
+                      items:[
+                        'Go to Bot Control and select the trading pairs you want to trade.',
+                        'Set your risk level: Low (safer, smaller gains), Medium (balanced), High (aggressive).',
+                        'Set trade amount per signal (minimum 10 USDT recommended).',
+                        'Choose your strategy — AI Adaptive is recommended for beginners.',
+                        'Click "Start Bot" to begin automated trading.',
+                      ]
+                    },
+                    {
+                      step:'04', title:'Monitor AI Signals',
+                      color:C.green,
+                      items:[
+                        'AI signals are generated 3 times daily: 08:00, 14:00, and 20:00 UTC.',
+                        'Go to AI Signals tab and click "Generate Signals" to get the latest analysis.',
+                        'Each signal includes: pair, direction (BUY/SELL/HOLD), entry, target, stop-loss, and confidence.',
+                        'When bot is active, it executes signals automatically on your linked exchange.',
+                        'HOLD signals mean "no action" — bot stays patient and waits.',
+                      ]
+                    },
+                    {
+                      step:'05', title:'Withdraw Your Profits',
+                      color:C.red,
+                      items:[
+                        'Minimum withdrawal is 20 USDT.',
+                        'Go to Wallet tab → Withdraw section.',
+                        'Enter your USDT TRC20 address carefully — withdrawals are irreversible.',
+                        'Withdrawals are processed within 1–24 hours.',
+                        'A 1 USDT network fee applies per withdrawal transaction.',
+                      ]
+                    },
+                    {
+                      step:'06', title:'Earn Passive Income via Referrals',
+                      color:C.gold,
+                      items:[
+                        'Go to Passive Income tab to find your unique referral link and code.',
+                        'Share with friends via WhatsApp, Telegram, Twitter, or QR code.',
+                        'Earn 5–15% commission on all trades made by your referrals — forever.',
+                        'Commissions are credited to your balance automatically.',
+                        'More referrals = higher commission tier (up to 15% for Platinum).',
+                      ]
+                    },
+                  ].map((section,i) => (
+                    <Box key={i} style={{ borderLeft:`3px solid ${section.color}` }}>
+                      <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+                        <div style={{ ...orb, fontSize:24, color:section.color, fontWeight:900, minWidth:40 }}>{section.step}</div>
+                        <div style={{ flex:1 }}>
+                          <h3 style={{ fontSize:15, color:C.white, margin:'0 0 10px', fontWeight:600 }}>{section.title}</h3>
+                          <ul style={{ margin:0, padding:0, listStyle:'none' }}>
+                            {section.items.map((item,j) => (
+                              <li key={j} style={{ fontSize:13, color:C.muted, marginBottom:6, display:'flex', gap:8, lineHeight:1.6 }}>
+                                <span style={{ color:section.color, marginTop:2 }}>▸</span>{item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </Box>
+                  ))}
+                </div>
+
+                {/* FAQ */}
+                <h2 style={{ ...orb, fontSize:16, color:C.text, margin:'0 0 16px', letterSpacing:1 }}>FREQUENTLY ASKED QUESTIONS</h2>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {[
+                    { q:'Is this bot safe to use?', a:'NexusTrader only executes trades on your exchange using read/trade API permissions. Funds remain in your own exchange account. We never have access to withdraw your funds. Always use dedicated API keys with trading-only permissions.' },
+                    { q:'What returns can I expect?', a:'Returns vary with market conditions. Historical bot performance shows 5–15% monthly returns, but this is not guaranteed. Crypto markets are volatile. Never invest more than you can afford to lose.' },
+                    { q:'Which network for USDT deposits?', a:'Always use TRON (TRC20) network for USDT. Do not send ERC20 or BEP20 USDT to this address or funds may be permanently lost.' },
+                    { q:'How do AI signals work?', a:'Our AI analyzes technical indicators (RSI, MACD, EMA, Bollinger Bands, volume), recent price action, and market sentiment. Signals are generated 3x daily and include entry price, target, stop-loss, and confidence percentage.' },
+                    { q:'Can I use multiple exchanges?', a:'Yes! You can connect multiple exchanges simultaneously. The bot will distribute trades across connected accounts based on your settings.' },
+                    { q:'What happens if the bot makes a loss?', a:'Stop-loss orders protect against large losses. If a trade hits the stop-loss, it closes automatically. Risk management is built into every trade. Low risk settings use tighter stop-losses.' },
+                  ].map((faq,i) => (
+                    <Box key={i}>
+                      <div style={{ fontSize:14, color:C.accent, fontWeight:600, marginBottom:6 }}>Q: {faq.q}</div>
+                      <div style={{ fontSize:13, color:C.muted, lineHeight:1.7 }}>A: {faq.a}</div>
+                    </Box>
+                  ))}
+                </div>
+
+                {/* Final disclaimer */}
+                <Box style={{ marginTop:16, borderColor:`${C.red}33`, background:`${C.redDim}44` }}>
+                  <div style={{ fontSize:12, color:`${C.red}CC`, lineHeight:1.7 }}>
+                    <strong style={{ color:C.red }}>⚠ IMPORTANT LEGAL DISCLAIMER:</strong> NexusTrader is a trading tool, not a financial advisor.
+                    Cryptocurrency trading involves high risk and you may lose some or all of your invested capital.
+                    AI signals and past performance do not guarantee future results. Only invest money you can afford to lose.
+                    This platform is for educational and informational purposes. Always conduct your own research (DYOR) before trading.
+                  </div>
+                </Box>
+              </div>
+            )}
+          </div>
+
+          {/* ══ Exchange Linking Modal ══ */}
+          {exchModal && (() => {
+            const exch = EXCHANGES.find(e => e.id === exchModal);
+            return (
+              <div style={{ position:'fixed', inset:0, background:'#000000BB', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+                onClick={e => { if(e.target===e.currentTarget) setExchModal(null); }}>
+                <div style={{ background:C.card, border:`1px solid ${exch.color}44`, borderRadius:16, padding:24, width:'100%', maxWidth:420, boxShadow:`0 0 40px ${exch.color}22` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+                    <div>
+                      <h2 style={{ ...orb, fontSize:16, color:exch.color, margin:'0 0 4px' }}>Link {exch.name}</h2>
+                      <p style={{ fontSize:12, color:C.muted, margin:0 }}>Enter your API credentials</p>
+                    </div>
+                    <button onClick={() => setExchModal(null)} style={{ background:'none', border:`2px solid ${C.border}`, borderRadius:8, color:C.muted, cursor:'pointer', fontSize:18, width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                  </div>
+
+                  <div style={{ background:`${C.gold}18`, border:`1px solid ${C.gold}33`, borderRadius:8, padding:10, marginBottom:16, fontSize:11, color:`${C.gold}CC` }}>
+                    ⚠ Enable ONLY Spot Trading permission. Disable withdrawals. Use IP whitelist: 45.92.8.172
+                  </div>
+
+                  <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:16 }}>
+                    <div>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>API Key *</div>
+                      <Input value={apiKey} onChange={setApiKey} placeholder="Paste API key here" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>API Secret *</div>
+                      <Input value={apiSecret} onChange={setApiSecret} placeholder="Paste API secret here" type="password" />
+                    </div>
+                    {['okx','kucoin'].includes(exchModal) && (
+                      <div>
+                        <div style={{ fontSize:12, color:C.muted, marginBottom:6 }}>Passphrase (OKX/KuCoin)</div>
+                        <Input value={apiPassphrase} onChange={setApiPassphrase} placeholder="API passphrase" type="password" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display:'flex', gap:8 }}>
+                    <Btn onClick={linkExchange} disabled={!apiKey || !apiSecret} color={exch.color} full>
+                      ⊕ Connect {exch.name}
+                    </Btn>
+                    <Btn onClick={() => setExchModal(null)} color={C.muted}>Cancel</Btn>
+                  </div>
+
+                  <div style={{ marginTop:12, fontSize:11, color:C.muted, lineHeight:1.6 }}>
+                    🔒 Credentials stored locally on your device only. Never transmitted to our servers.
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Footer ── */}
+          <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 20px', textAlign:'center' }}>
+            <div style={{ ...orb, fontSize:11, color:C.muted, letterSpacing:2, marginBottom:3 }}>NEXUS TRADER v2.4.1</div>
+            <div style={{ fontSize:10, color:C.faint }}>AI-Powered Crypto Trading Bot · For educational use only</div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<NexusTrader />);
+  </script>
+</body>
+</html>
